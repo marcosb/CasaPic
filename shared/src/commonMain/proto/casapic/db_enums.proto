@@ -1,0 +1,16 @@
+syntax = "proto3";
+package casapic;
+option java_package = "com.metitem.casapic.db";
+
+enum ScanMode {
+    SCAN_MODE_NONE   = 0;
+    SCAN_MODE_ALL    = 1;
+    SCAN_MODE_REMOVE = 2;
+    SCAN_MODE_ONCE   = 3;
+}
+
+enum AlbumKind {
+    ALBUM_KIND_ALBUM      = 0;
+    ALBUM_KIND_FACE_GROUP = 1;
+    ALBUM_KIND_PROJECT    = 2;
+}

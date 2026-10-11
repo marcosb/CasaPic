@@ -1,0 +1,138 @@
+// Derived from https://gist.github.com/fbuchinger/1073823/9986cc61ae67afeca2f4a2f984d7b5d4a818d4f0
+
+syntax = "proto3";
+package casapic;
+option java_package = "com.metitem.casapic.metadata";
+
+message FolderMetadata {
+    int32 schema_version = 1;
+    repeated PhotoEntry photos = 2;
+    repeated AlbumEntry albums = 3;
+    repeated FaceContactEntry face_contacts = 4;
+}
+
+message PhotoEntry {
+    string file_name = 1;
+    int32 star_rating = 2;
+    string caption = 3;
+    repeated string keywords = 4;
+    repeated PhotoEdit edits = 5;
+    repeated FaceEntry faces = 6;
+    double gps_latitude = 7;
+    double gps_longitude = 8;
+    repeated string album_tokens = 9;
+    bool is_hidden = 10;
+    bool block_upload = 11;
+}
+
+message PhotoEdit {
+    oneof kind {
+        RotateEdit     rotate     = 1;
+        CropEdit       crop       = 2;
+        TiltEdit       tilt       = 3;
+        FinetuneEdit   finetune   = 4;
+        FillLightEdit  fill_light = 5;
+        HighlightsEdit highlights = 6;
+        ShadowsEdit    shadows    = 7;
+        SaturationEdit saturation = 8;
+        SharpnessEdit  sharpness  = 9;
+        EnhanceEdit    enhance    = 10;
+        AutoLightEdit  autolight  = 11;
+        AutoColorEdit  autocolor  = 12;
+        SepiaEdit      sepia      = 13;
+        BwEdit         bw         = 14;
+        SoftFocusEdit  softfocus  = 15;
+        FilmGrainEdit  filmgrain  = 16;
+        GlowEdit       glow       = 17;
+        LomoEdit       lomo       = 18;
+        RetroluxEdit   retrolux   = 19;
+        VignetteEdit   vignette   = 20;
+        TintEdit       tint        = 21;
+        RedEyeEdit     redeye      = 22;
+        BoostEdit      boost       = 23;
+        FilteredBwEdit filtered_bw = 24;
+        OrtonEdit      orton       = 25;
+        PolarizeEdit   polarize    = 26;
+        UnknownEdit    unknown     = 99;
+    }
+}
+
+message RotateEdit  { int32 degrees = 1; }
+message CropEdit    { float left = 1; float top = 2; float right = 3; float bottom = 4; }
+message TiltEdit    { float angle = 1; float scale = 2; }
+
+message FinetuneEdit {
+    float shadows = 1;
+    float highlights = 2;
+    float color_temp = 3;
+    float brightness = 4;
+    float saturation = 5;
+}
+
+message FillLightEdit  { float value = 1; }
+message HighlightsEdit { float value = 1; }
+message ShadowsEdit    { float value = 1; }
+message SaturationEdit { float value = 1; }
+message SharpnessEdit  { float value = 1; }
+
+message EnhanceEdit   { bool presence = 1; }
+message AutoLightEdit { bool presence = 1; }
+message AutoColorEdit { bool presence = 1; }
+
+message SepiaEdit     { float strength = 1; }
+message BwEdit        { float strength = 1; }
+message SoftFocusEdit { float strength = 1; }
+message FilmGrainEdit { float strength = 1; }
+message GlowEdit      { float strength = 1; }
+
+message LomoEdit {
+    float saturation = 1;
+    float contrast = 2;
+}
+
+message RetroluxEdit { float strength = 1; }
+
+message VignetteEdit {
+    float strength = 1;
+    float size = 2;
+    float roundness = 3;
+}
+
+message TintEdit {
+    float r = 1;
+    float g = 2;
+    float b = 3;
+    float strength = 4;
+}
+
+message RedEyeRegion { float x = 1; float y = 2; float radius = 3; }
+message RedEyeEdit   { repeated RedEyeRegion regions = 1; }
+
+message BoostEdit      { float strength = 1; }
+message FilteredBwEdit { float strength = 1; }
+message OrtonEdit      { float strength = 1; }
+message PolarizeEdit   { float strength = 1; }
+
+message UnknownEdit { string type = 1; string raw_params = 2; }
+
+message FaceEntry {
+    string contact_id = 1;
+    float left = 2;
+    float top = 3;
+    float right = 4;
+    float bottom = 5;
+    bool is_manual = 6;
+}
+
+message AlbumEntry {
+    string token = 1;
+    string name = 2;
+    string description = 3;
+    int64 created_date_millis = 4;
+}
+
+message FaceContactEntry {
+    string id = 1;
+    string name = 2;
+    int64 group_album_id = 3;
+}

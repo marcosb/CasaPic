@@ -1,0 +1,455 @@
+-- Watched folders
+CREATE TABLE folders (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    path                TEXT    NOT NULL UNIQUE,
+    name                TEXT    NOT NULL,
+    scan_mode           INTEGER NOT NULL DEFAULT 1,   -- ScanMode: NONE=0, ALL=1, REMOVE=2, ONCE=3
+    is_watched          INTEGER NOT NULL DEFAULT 1,
+    added_date_millis   INTEGER NOT NULL
+);
+
+-- Photos (one row per file on disk)
+CREATE TABLE photos (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path               TEXT    NOT NULL UNIQUE,
+    folder_id               INTEGER REFERENCES folders(id) ON DELETE SET NULL,
+    file_name               TEXT    NOT NULL,
+    file_size               INTEGER,
+    width                   INTEGER,
+    height                  INTEGER,
+    capture_date_millis     INTEGER,
+    modified_date_millis    INTEGER,
+    imported_date_millis    INTEGER,
+    camera_make             TEXT,
+    camera_model            TEXT,
+    focal_length            REAL,
+    f_number                REAL,
+    iso                     INTEGER,
+    exposure_time           TEXT,
+    flash                   INTEGER,
+    gps_latitude            REAL,
+    gps_longitude           REAL,
+    gps_altitude            REAL,
+    orientation             INTEGER,
+    jpeg_quality            INTEGER,
+    unique_id               TEXT,
+    description             TEXT,
+    caption                 TEXT,
+    iptc_copyright          TEXT,
+    iptc_author             TEXT,
+    iptc_headline           TEXT,
+    iptc_keywords           TEXT,
+    xmp_rating              INTEGER,
+    xmp_label               TEXT,
+    xmp_subject             TEXT,
+    star_rating             INTEGER NOT NULL DEFAULT 0,
+    is_hidden               INTEGER NOT NULL DEFAULT 0,
+    block_upload            INTEGER NOT NULL DEFAULT 0,
+    fingerprint             INTEGER,
+    thumbnail_path          TEXT
+);
+
+CREATE INDEX idx_photos_fingerprint   ON photos(fingerprint)                   WHERE fingerprint IS NOT NULL;
+CREATE INDEX idx_photos_folder_date   ON photos(folder_id, capture_date_millis);
+CREATE INDEX idx_photos_date          ON photos(capture_date_millis);
+CREATE INDEX idx_photos_hidden_date   ON photos(is_hidden, capture_date_millis);
+CREATE INDEX idx_photos_star          ON photos(star_rating)                   WHERE star_rating > 0;
+CREATE INDEX idx_photos_file_path     ON photos(file_path);
+
+-- Tags / labels
+CREATE TABLE tags (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE photo_tags (
+    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    tag_id   INTEGER NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
+    PRIMARY KEY (photo_id, tag_id)
+);
+
+-- Albums (user-created collections; also used for face groups)
+CREATE TABLE albums (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    name                    TEXT    NOT NULL,
+    description             TEXT,
+    created_date_millis     INTEGER NOT NULL,
+    modified_date_millis    INTEGER NOT NULL,
+    cover_photo_id          INTEGER REFERENCES photos(id) ON DELETE SET NULL,
+    kind                    INTEGER NOT NULL DEFAULT 0   -- AlbumKind: ALBUM=0, FACE_GROUP=1, PROJECT=2
+);
+
+CREATE TABLE album_photos (
+    album_id INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    photo_id INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (album_id, photo_id)
+);
+
+-- Face detections (one row per detected face in a photo)
+CREATE TABLE face_detections (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_id            INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    face_group_id       INTEGER REFERENCES albums(id) ON DELETE SET NULL,
+    box_left            REAL    NOT NULL,
+    box_top             REAL    NOT NULL,
+    box_right           REAL    NOT NULL,
+    box_bottom          REAL    NOT NULL,
+    confidence          REAL,
+    left_eye_open_prob  REAL,
+    right_eye_open_prob REAL,
+    smiling_prob        REAL,
+    embedding           BLOB,
+    tracking_id         INTEGER,
+    is_manual           INTEGER NOT NULL DEFAULT 0
+);
+
+-- Global app settings (key-value store)
+CREATE TABLE settings (
+    key   TEXT NOT NULL PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Non-destructive edit stack (Wire-encoded PhotoEdit proto per row)
+CREATE TABLE photo_edits (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    photo_id            INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+    edit_proto          BLOB    NOT NULL,
+    applied_date_millis INTEGER NOT NULL,
+    is_undone           INTEGER NOT NULL DEFAULT 0
+);
+
+-- ============================================================
+-- Folder queries
+-- ============================================================
+
+insertFolder:
+INSERT OR IGNORE INTO folders (path, name, scan_mode, is_watched, added_date_millis)
+VALUES (?, ?, ?, ?, ?);
+
+getFolderByPath:
+SELECT * FROM folders WHERE path = ?;
+
+getAllFolders:
+SELECT * FROM folders ORDER BY name;
+
+updateFolderScanMode:
+UPDATE folders SET scan_mode = ? WHERE id = ?;
+
+deleteFolder:
+DELETE FROM folders WHERE id = ?;
+
+-- ============================================================
+-- Photo queries
+-- ============================================================
+
+insertPhoto:
+INSERT OR IGNORE INTO photos (
+    file_path, folder_id, file_name, file_size, width, height,
+    capture_date_millis, modified_date_millis, imported_date_millis,
+    camera_make, camera_model, focal_length, f_number, iso, exposure_time,
+    flash, gps_latitude, gps_longitude, gps_altitude, orientation,
+    jpeg_quality, unique_id, description, caption,
+    iptc_copyright, iptc_author, iptc_headline, iptc_keywords,
+    xmp_rating, xmp_label, xmp_subject,
+    star_rating, is_hidden, block_upload
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+getPhotoIdByPath:
+SELECT id FROM photos WHERE file_path = ?;
+
+getPhotoByPath:
+SELECT * FROM photos WHERE file_path = ?;
+
+getPhotoById:
+SELECT * FROM photos WHERE id = ?;
+
+updatePhotoOnRescan:
+UPDATE photos
+SET file_size = ?, width = ?, height = ?,
+    capture_date_millis = ?, modified_date_millis = ?,
+    camera_make = ?, camera_model = ?, focal_length = ?, f_number = ?,
+    iso = ?, exposure_time = ?, flash = ?,
+    gps_latitude = ?, gps_longitude = ?, gps_altitude = ?,
+    orientation = ?, jpeg_quality = ?, unique_id = ?,
+    description = ?, caption = ?,
+    iptc_copyright = ?, iptc_author = ?, iptc_headline = ?, iptc_keywords = ?,
+    xmp_rating = ?, xmp_label = ?, xmp_subject = ?
+WHERE file_path = ?;
+
+updatePhotoThumbnail:
+UPDATE photos SET thumbnail_path = ? WHERE id = ?;
+
+updatePhotoFingerprint:
+UPDATE photos SET fingerprint = ? WHERE id = ?;
+
+updatePhotoFilePath:
+UPDATE photos SET file_path = ?, folder_id = ? WHERE id = ?;
+
+updatePhotoStar:
+UPDATE photos SET star_rating = ? WHERE id = ?;
+
+updatePhotoHidden:
+UPDATE photos SET is_hidden = ? WHERE id = ?;
+
+updatePhotoBlockUpload:
+UPDATE photos SET block_upload = ? WHERE id = ?;
+
+updatePhotoCaption:
+UPDATE photos SET caption = ? WHERE id = ?;
+
+deletePhotoByPath:
+DELETE FROM photos WHERE file_path = ?;
+
+deletePhotoById:
+DELETE FROM photos WHERE id = ?;
+
+getPhotosForFolder:
+SELECT * FROM photos
+WHERE folder_id = :folderId AND (:showHidden = 1 OR is_hidden = 0)
+ORDER BY capture_date_millis DESC
+LIMIT :limit OFFSET :offset;
+
+countPhotosForFolder:
+SELECT COUNT(*) FROM photos
+WHERE folder_id = :folderId AND (:showHidden = 1 OR is_hidden = 0);
+
+countSearchPhotos:
+SELECT COUNT(*) FROM photos
+WHERE (
+    file_name     LIKE '%' || :query || '%'
+    OR caption    LIKE '%' || :query || '%'
+    OR description LIKE '%' || :query || '%'
+    OR iptc_keywords LIKE '%' || :query || '%'
+    OR iptc_author   LIKE '%' || :query || '%'
+    OR camera_make   LIKE '%' || :query || '%'
+    OR camera_model  LIKE '%' || :query || '%'
+)
+AND (:showHidden = 1 OR is_hidden = 0);
+
+countSearchPhotosInFolder:
+SELECT COUNT(*) FROM photos
+WHERE (
+    file_name     LIKE '%' || :query || '%'
+    OR caption    LIKE '%' || :query || '%'
+    OR description LIKE '%' || :query || '%'
+    OR iptc_keywords LIKE '%' || :query || '%'
+    OR iptc_author   LIKE '%' || :query || '%'
+    OR camera_make   LIKE '%' || :query || '%'
+    OR camera_model  LIKE '%' || :query || '%'
+)
+AND folder_id = :folderId
+AND (:showHidden = 1 OR is_hidden = 0);
+
+getPhotosAll:
+SELECT * FROM photos
+WHERE (:showHidden = 1 OR is_hidden = 0)
+ORDER BY capture_date_millis DESC
+LIMIT :limit OFFSET :offset;
+
+countPhotosAll:
+SELECT COUNT(*) FROM photos
+WHERE (:showHidden = 1 OR is_hidden = 0);
+
+searchPhotos:
+SELECT * FROM photos
+WHERE (
+    file_name     LIKE '%' || :query || '%'
+    OR caption    LIKE '%' || :query || '%'
+    OR description LIKE '%' || :query || '%'
+    OR iptc_keywords LIKE '%' || :query || '%'
+    OR iptc_author   LIKE '%' || :query || '%'
+    OR camera_make   LIKE '%' || :query || '%'
+    OR camera_model  LIKE '%' || :query || '%'
+)
+AND (:showHidden = 1 OR is_hidden = 0)
+ORDER BY capture_date_millis DESC
+LIMIT :limit OFFSET :offset;
+
+searchPhotosInFolder:
+SELECT * FROM photos
+WHERE (
+    file_name     LIKE '%' || :query || '%'
+    OR caption    LIKE '%' || :query || '%'
+    OR description LIKE '%' || :query || '%'
+    OR iptc_keywords LIKE '%' || :query || '%'
+    OR iptc_author   LIKE '%' || :query || '%'
+    OR camera_make   LIKE '%' || :query || '%'
+    OR camera_model  LIKE '%' || :query || '%'
+)
+AND folder_id = :folderId
+AND (:showHidden = 1 OR is_hidden = 0)
+ORDER BY capture_date_millis DESC
+LIMIT :limit OFFSET :offset;
+
+getTotalDiskSizeForFolder:
+SELECT CAST(COALESCE(SUM(file_size), 0) AS INTEGER) FROM photos
+WHERE folder_id = :folderId AND (:showHidden = 1 OR is_hidden = 0);
+
+getTotalDiskSizeAll:
+SELECT CAST(COALESCE(SUM(file_size), 0) AS INTEGER) FROM photos
+WHERE (:showHidden = 1 OR is_hidden = 0);
+
+getPhotosWithNullThumbnail:
+SELECT id, file_path FROM photos WHERE thumbnail_path IS NULL LIMIT 100;
+
+getPhotosWithMissingFileSize:
+SELECT id, file_path FROM photos WHERE file_size IS NULL OR file_size = 0;
+
+updateFileSize:
+UPDATE photos SET file_size = ? WHERE id = ?;
+
+getPhotosWithNullFingerprint:
+SELECT id, file_path FROM photos WHERE fingerprint IS NULL LIMIT 100;
+
+getPhotosByFingerprint:
+SELECT * FROM photos WHERE fingerprint = ?;
+
+getModifiedDateMillis:
+SELECT modified_date_millis FROM photos WHERE file_path = ?;
+
+-- ============================================================
+-- Tag queries
+-- ============================================================
+
+insertOrIgnoreTag:
+INSERT OR IGNORE INTO tags (name) VALUES (?);
+
+getTagByName:
+SELECT * FROM tags WHERE name = ?;
+
+insertPhotoTag:
+INSERT OR IGNORE INTO photo_tags (photo_id, tag_id) VALUES (?, ?);
+
+deletePhotoTagsForPhoto:
+DELETE FROM photo_tags WHERE photo_id = ?;
+
+-- ============================================================
+-- Album queries
+-- ============================================================
+
+insertAlbum:
+INSERT INTO albums (name, description, created_date_millis, modified_date_millis, kind)
+VALUES (?, ?, ?, ?, ?);
+
+lastInsertId:
+SELECT last_insert_rowid();
+
+getAlbumById:
+SELECT * FROM albums WHERE id = ?;
+
+getAlbumsByKind:
+SELECT * FROM albums WHERE kind = ? ORDER BY name;
+
+getAllAlbums:
+SELECT * FROM albums ORDER BY name;
+
+updateAlbumName:
+UPDATE albums SET name = ?, modified_date_millis = ? WHERE id = ?;
+
+updateAlbumCover:
+UPDATE albums SET cover_photo_id = ?, modified_date_millis = ? WHERE id = ?;
+
+deleteAlbum:
+DELETE FROM albums WHERE id = ?;
+
+insertAlbumPhoto:
+INSERT OR IGNORE INTO album_photos (album_id, photo_id, position) VALUES (?, ?, ?);
+
+removeAlbumPhoto:
+DELETE FROM album_photos WHERE album_id = ? AND photo_id = ?;
+
+getPhotosInAlbum:
+SELECT p.* FROM photos p
+INNER JOIN album_photos ap ON p.id = ap.photo_id
+WHERE ap.album_id = ?
+ORDER BY ap.position;
+
+countPhotosInAlbum:
+SELECT COUNT(*) FROM album_photos WHERE album_id = ?;
+
+getPhotosInAlbumPaged:
+SELECT p.* FROM photos p
+INNER JOIN album_photos ap ON p.id = ap.photo_id
+WHERE ap.album_id = :albumId
+ORDER BY ap.position
+LIMIT :limit OFFSET :offset;
+
+getTotalDiskSizeForAlbum:
+SELECT CAST(COALESCE(SUM(p.file_size), 0) AS INTEGER) FROM photos p
+INNER JOIN album_photos ap ON p.id = ap.photo_id
+WHERE ap.album_id = :albumId;
+
+-- ============================================================
+-- Face detection queries
+-- ============================================================
+
+insertFaceDetection:
+INSERT INTO face_detections (
+    photo_id, face_group_id, box_left, box_top, box_right, box_bottom,
+    confidence, left_eye_open_prob, right_eye_open_prob, smiling_prob,
+    embedding, tracking_id, is_manual
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+getFaceDetectionsForPhoto:
+SELECT * FROM face_detections WHERE photo_id = ?;
+
+updateFaceGroupId:
+UPDATE face_detections SET face_group_id = ? WHERE id = ?;
+
+deleteFaceDetection:
+DELETE FROM face_detections WHERE id = ?;
+
+deleteFaceDetectionsForPhoto:
+DELETE FROM face_detections WHERE photo_id = ?;
+
+getFaceDetectionsWithEmbeddings:
+SELECT id, photo_id, face_group_id, embedding
+FROM face_detections
+WHERE embedding IS NOT NULL
+ORDER BY photo_id
+LIMIT :limit OFFSET :offset;
+
+countFaceDetectionsWithEmbeddings:
+SELECT COUNT(*) FROM face_detections WHERE embedding IS NOT NULL;
+
+-- ============================================================
+-- Photo edits queries
+-- ============================================================
+
+insertPhotoEdit:
+INSERT INTO photo_edits (photo_id, edit_proto, applied_date_millis)
+VALUES (?, ?, ?);
+
+getActiveEditsForPhoto:
+SELECT * FROM photo_edits
+WHERE photo_id = ? AND is_undone = 0
+ORDER BY id ASC;
+
+markEditUndone:
+UPDATE photo_edits SET is_undone = 1 WHERE id = ?;
+
+undoAllEditsForPhoto:
+UPDATE photo_edits SET is_undone = 1 WHERE photo_id = ?;
+
+redoEdit:
+UPDATE photo_edits SET is_undone = 0 WHERE id = ?;
+
+deleteEditsForPhoto:
+DELETE FROM photo_edits WHERE photo_id = ?;
+
+updatePhotoCaptureDate:
+UPDATE photos SET capture_date_millis = ? WHERE id = ?;
+
+-- ============================================================
+-- Settings queries
+-- ============================================================
+
+upsertSetting:
+INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?);
+
+getSetting:
+SELECT value FROM settings WHERE key = ?;
+
+getAllSettings:
+SELECT * FROM settings;
